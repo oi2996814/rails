@@ -53,6 +53,8 @@
 # * {ImageProcessing::Vips}[https://github.com/janko/image_processing/blob/master/doc/vips.md#methods]
 # * {ruby-vips reference}[http://www.rubydoc.info/gems/ruby-vips/Vips/Image]
 class ActiveStorage::Variant
+  include ActiveStorage::Blob::Servable
+
   attr_reader :blob, :variation
   delegate :service, to: :blob
   delegate :content_type, to: :variation
@@ -89,12 +91,6 @@ class ActiveStorage::Variant
 
   def filename
     ActiveStorage::Filename.new "#{blob.filename.base}.#{variation.format.downcase}"
-  end
-
-  alias_method :content_type_for_serving, :content_type
-
-  def forced_disposition_for_serving # :nodoc:
-    nil
   end
 
   # Returns the receiving variant. Allows ActiveStorage::Variant and ActiveStorage::Preview instances to be used interchangeably.

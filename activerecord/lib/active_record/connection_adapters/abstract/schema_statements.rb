@@ -293,6 +293,11 @@ module ActiveRecord
       def create_table(table_name, id: :primary_key, primary_key: nil, force: nil, **options, &block)
         validate_create_table_options!(options)
         validate_table_length!(table_name) unless options[:_uses_legacy_table_name]
+
+        if force && options.key?(:if_not_exists)
+          raise ArgumentError, "Options `:force` and `:if_not_exists` cannot be used simultaneously."
+        end
+
         td = build_create_table_definition(table_name, id: id, primary_key: primary_key, force: force, **options, &block)
 
         if force
@@ -339,6 +344,15 @@ module ActiveRecord
       #
       #   # Creates a table called 'assemblies_parts' with no id.
       #   create_join_table(:assemblies, :parts)
+      #
+      #   # Creates a table called 'paper_boxes_papers' with no id.
+      #   create_join_table('papers', 'paper_boxes')
+      #
+      # A duplicate prefix is combined into a single prefix. This is useful for
+      # namespaced models like Music::Artist and Music::Record:
+      #
+      #   # Creates a table called 'music_artists_records' with no id.
+      #   create_join_table('music_artists', 'music_records')
       #
       # You can pass an +options+ hash which can include the following keys:
       # [<tt>:table_name</tt>]
@@ -511,7 +525,7 @@ module ActiveRecord
         raise NotImplementedError, "rename_table is not implemented"
       end
 
-      # Drops a table from the database.
+      # Drops a table or tables from the database.
       #
       # [<tt>:force</tt>]
       #   Set to +:cascade+ to drop dependent objects as well.
@@ -522,10 +536,12 @@ module ActiveRecord
       #
       # Although this command ignores most +options+ and the block if one is given,
       # it can be helpful to provide these in a migration's +change+ method so it can be reverted.
-      # In that case, +options+ and the block will be used by #create_table.
-      def drop_table(table_name, **options)
-        schema_cache.clear_data_source_cache!(table_name.to_s)
-        execute "DROP TABLE#{' IF EXISTS' if options[:if_exists]} #{quote_table_name(table_name)}"
+      # In that case, +options+ and the block will be used by #create_table except if you provide more than one table which is not supported.
+      def drop_table(*table_names, **options)
+        table_names.each do |table_name|
+          schema_cache.clear_data_source_cache!(table_name.to_s)
+          execute "DROP TABLE#{' IF EXISTS' if options[:if_exists]} #{quote_table_name(table_name)}"
+        end
       end
 
       # Add a new +type+ column named +column_name+ to +table_name+.
@@ -677,7 +693,7 @@ module ActiveRecord
       #
       # If the options provided include an +if_exists+ key, it will be used to check if the
       # column does not exist. This will silently ignore the migration rather than raising
-      # if the column was already used.
+      # if the column was already removed.
       #
       #   remove_column(:suppliers, :qualification, if_exists: true)
       def remove_column(table_name, column_name, type = nil, **options)
@@ -839,6 +855,16 @@ module ActiveRecord
       #
       # Note: only supported by PostgreSQL.
       #
+      # ====== Creating an index where NULLs are treated equally
+      #
+      #   add_index(:people, :last_name, nulls_not_distinct: true)
+      #
+      # generates:
+      #
+      #   CREATE INDEX index_people_on_last_name ON people (last_name) NULLS NOT DISTINCT
+      #
+      # Note: only supported by PostgreSQL version 15.0.0 and greater.
+      #
       # ====== Creating an index with a specific method
       #
       #   add_index(:developers, :name, using: 'btree')
@@ -876,9 +902,12 @@ module ActiveRecord
       # ====== Creating an index with a specific algorithm
       #
       #  add_index(:developers, :name, algorithm: :concurrently)
-      #  # CREATE INDEX CONCURRENTLY developers_on_name on developers (name)
+      #  # CREATE INDEX CONCURRENTLY developers_on_name on developers (name) -- PostgreSQL
       #
-      # Note: only supported by PostgreSQL.
+      #  add_index(:developers, :name, algorithm: :inplace)
+      #  # CREATE INDEX `index_developers_on_name` ON `developers` (`name`) ALGORITHM = INPLACE -- MySQL
+      #
+      # Note: only supported by PostgreSQL and MySQL.
       #
       # Concurrently adding an index is not supported in a transaction.
       #
@@ -963,7 +992,11 @@ module ActiveRecord
       def index_name(table_name, options) # :nodoc:
         if Hash === options
           if options[:column]
-            generate_index_name(table_name, options[:column])
+            if options[:_uses_legacy_index_name]
+              "index_#{table_name}_on_#{Array(options[:column]) * '_and_'}"
+            else
+              generate_index_name(table_name, options[:column])
+            end
           elsif options[:name]
             options[:name]
           else
@@ -983,7 +1016,6 @@ module ActiveRecord
       # Adds a reference. The reference column is a bigint by default,
       # the <tt>:type</tt> option can be used to specify a different type.
       # Optionally adds a +_type+ column, if <tt>:polymorphic</tt> option is provided.
-      # #add_reference and #add_belongs_to are acceptable.
       #
       # The +options+ hash can include the following keys:
       # [<tt>:type</tt>]
@@ -1034,7 +1066,6 @@ module ActiveRecord
       alias :add_belongs_to :add_reference
 
       # Removes the reference(s). Also removes a +type+ column if one exists.
-      # #remove_reference and #remove_belongs_to are acceptable.
       #
       # ====== Remove the reference
       #
@@ -1100,6 +1131,16 @@ module ActiveRecord
       #
       #   ALTER TABLE "articles" ADD CONSTRAINT fk_rails_58ca3d3a82 FOREIGN KEY ("author_id") REFERENCES "users" ("lng_id")
       #
+      # ====== Creating a composite foreign key
+      #
+      #   Assuming "carts" table has "(shop_id, user_id)" as a primary key.
+      #
+      #   add_foreign_key :orders, :carts, primary_key: [:shop_id, :user_id]
+      #
+      # generates:
+      #
+      #   ALTER TABLE "orders" ADD CONSTRAINT fk_rails_6f5e4cb3a4 FOREIGN KEY ("cart_shop_id", "cart_user_id") REFERENCES "carts" ("shop_id", "user_id")
+      #
       # ====== Creating a cascading foreign key
       #
       #   add_foreign_key :articles, :authors, on_delete: :cascade
@@ -1110,9 +1151,11 @@ module ActiveRecord
       #
       # The +options+ hash can include the following keys:
       # [<tt>:column</tt>]
-      #   The foreign key column name on +from_table+. Defaults to <tt>to_table.singularize + "_id"</tt>
+      #   The foreign key column name on +from_table+. Defaults to <tt>to_table.singularize + "_id"</tt>.
+      #   Pass an array to create a composite foreign key.
       # [<tt>:primary_key</tt>]
       #   The primary key column name on +to_table+. Defaults to +id+.
+      #   Pass an array to create a composite foreign key.
       # [<tt>:name</tt>]
       #   The constraint name. Defaults to <tt>fk_rails_<identifier></tt>.
       # [<tt>:on_delete</tt>]
@@ -1129,9 +1172,10 @@ module ActiveRecord
       #   +:deferred+ or +:immediate+ to specify the default behavior. Defaults to +false+.
       def add_foreign_key(from_table, to_table, **options)
         return unless use_foreign_keys?
-        return if options[:if_not_exists] == true && foreign_key_exists?(from_table, to_table, **options.slice(:column))
 
         options = foreign_key_options(from_table, to_table, options)
+        return if options[:if_not_exists] == true && foreign_key_exists?(from_table, to_table, **options.slice(:column, :primary_key))
+
         at = create_alter_table from_table
         at.add_foreign_key to_table, options
 
@@ -1170,7 +1214,7 @@ module ActiveRecord
       #   The name of the table that contains the referenced primary key.
       def remove_foreign_key(from_table, to_table = nil, **options)
         return unless use_foreign_keys?
-        return if options.delete(:if_exists) == true && !foreign_key_exists?(from_table, to_table)
+        return if options.delete(:if_exists) == true && !foreign_key_exists?(from_table, to_table, **options.slice(:column))
 
         fk_name_to_delete = foreign_key_for!(from_table, to_table: to_table, **options).name
 
@@ -1195,15 +1239,33 @@ module ActiveRecord
         foreign_key_for(from_table, to_table: to_table, **options).present?
       end
 
-      def foreign_key_column_for(table_name) # :nodoc:
+      def foreign_key_column_for(table_name, column_name) # :nodoc:
         name = strip_table_name_prefix_and_suffix(table_name)
-        "#{name.singularize}_id"
+        "#{name.singularize}_#{column_name}"
       end
 
       def foreign_key_options(from_table, to_table, options) # :nodoc:
         options = options.dup
-        options[:column] ||= foreign_key_column_for(to_table)
+
+        if options[:primary_key].is_a?(Array)
+          options[:column] ||= options[:primary_key].map do |pk_column|
+            foreign_key_column_for(to_table, pk_column)
+          end
+        else
+          options[:column] ||= foreign_key_column_for(to_table, "id")
+        end
+
         options[:name]   ||= foreign_key_name(from_table, options)
+
+        if options[:column].is_a?(Array) || options[:primary_key].is_a?(Array)
+          if Array(options[:primary_key]).size != Array(options[:column]).size
+            raise ArgumentError, <<~MSG.squish
+              For composite primary keys, specify :column and :primary_key, where
+              :column must reference all the :primary_key columns from #{to_table.inspect}
+            MSG
+          end
+        end
+
         options
       end
 
@@ -1225,12 +1287,16 @@ module ActiveRecord
       # The +options+ hash can include the following keys:
       # [<tt>:name</tt>]
       #   The constraint name. Defaults to <tt>chk_rails_<identifier></tt>.
+      # [<tt>:if_not_exists</tt>]
+      #   Silently ignore if the constraint already exists, rather than raise an error.
       # [<tt>:validate</tt>]
       #   (PostgreSQL only) Specify whether or not the constraint should be validated. Defaults to +true+.
-      def add_check_constraint(table_name, expression, **options)
+      def add_check_constraint(table_name, expression, if_not_exists: false, **options)
         return unless supports_check_constraints?
 
         options = check_constraint_options(table_name, expression, options)
+        return if if_not_exists && check_constraint_exists?(table_name, **options)
+
         at = create_alter_table(table_name)
         at.add_check_constraint(expression, options)
 
@@ -1256,10 +1322,10 @@ module ActiveRecord
       # The +expression+ parameter will be ignored if present. It can be helpful
       # to provide this in a migration's +change+ method so it can be reverted.
       # In that case, +expression+ will be used by #add_check_constraint.
-      def remove_check_constraint(table_name, expression = nil, **options)
+      def remove_check_constraint(table_name, expression = nil, if_exists: false, **options)
         return unless supports_check_constraints?
 
-        return if options[:if_exists] && !check_constraint_exists?(table_name, **options)
+        return if if_exists && !check_constraint_exists?(table_name, **options)
 
         chk_name_to_delete = check_constraint_for!(table_name, expression: expression, **options).name
 
@@ -1268,7 +1334,6 @@ module ActiveRecord
 
         execute schema_creation.accept(at)
       end
-
 
       # Checks to see if a check constraint exists on a table for a given check constraint definition.
       #
@@ -1281,8 +1346,15 @@ module ActiveRecord
         check_constraint_for(table_name, **options).present?
       end
 
-      def dump_schema_information # :nodoc:
-        versions = schema_migration.versions
+      def remove_constraint(table_name, constraint_name) # :nodoc:
+        at = create_alter_table(table_name)
+        at.drop_constraint(constraint_name)
+
+        execute schema_creation.accept(at)
+      end
+
+      def dump_schema_versions # :nodoc:
+        versions = pool.schema_migration.versions
         insert_versions_sql(versions) if versions.any?
       end
 
@@ -1292,8 +1364,9 @@ module ActiveRecord
 
       def assume_migrated_upto_version(version)
         version = version.to_i
-        sm_table = quote_table_name(schema_migration.table_name)
+        sm_table = quote_table_name(pool.schema_migration.table_name)
 
+        migration_context = pool.migration_context
         migrated = migration_context.get_all_versions
         versions = migration_context.migrations.map(&:version)
 
@@ -1366,7 +1439,7 @@ module ActiveRecord
 
         limited = relation.reselect(values).distinct!
         limited_ids = select_rows(limited.arel, "SQL").map do |results|
-          results.last(Array(relation.primary_key).length) # ignores order values for MySQL and Postgres
+          results.last(Array(relation.primary_key).length) # ignores order values for MySQL and PostgreSQL
         end
 
         if limited_ids.empty?
@@ -1604,11 +1677,11 @@ module ActiveRecord
           end
         end
 
-        def rename_table_indexes(table_name, new_name)
+        def rename_table_indexes(table_name, new_name, **options)
           indexes(new_name).each do |index|
-            generated_index_name = index_name(table_name, column: index.columns)
+            generated_index_name = index_name(table_name, column: index.columns, **options)
             if generated_index_name == index.name
-              rename_index new_name, generated_index_name, index_name(new_name, column: index.columns)
+              rename_index new_name, generated_index_name, index_name(new_name, column: index.columns, **options)
             end
           end
         end
@@ -1682,7 +1755,8 @@ module ActiveRecord
 
         def foreign_key_name(table_name, options)
           options.fetch(:name) do
-            identifier = "#{table_name}_#{options.fetch(:column)}_fk"
+            columns = Array(options.fetch(:column)).map(&:to_s)
+            identifier = "#{table_name}_#{columns * '_and_'}_fk"
             hashed_identifier = OpenSSL::Digest::SHA256.hexdigest(identifier).first(10)
 
             "fk_rails_#{hashed_identifier}"
@@ -1802,16 +1876,8 @@ module ActiveRecord
         end
 
         def insert_versions_sql(versions)
-          sm_table = quote_table_name(schema_migration.table_name)
-
-          if versions.is_a?(Array)
-            sql = +"INSERT INTO #{sm_table} (version) VALUES\n"
-            sql << versions.reverse.map { |v| "(#{quote(v)})" }.join(",\n")
-            sql << ";"
-            sql
-          else
-            "INSERT INTO #{sm_table} (version) VALUES (#{quote(versions)});"
-          end
+          versions_formatter = ActiveRecord.schema_versions_formatter.new(self)
+          versions_formatter.format(versions)
         end
 
         def data_source_sql(name = nil, type: nil)

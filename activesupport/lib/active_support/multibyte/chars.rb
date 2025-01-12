@@ -5,6 +5,11 @@ require "active_support/core_ext/string/access"
 require "active_support/core_ext/string/behavior"
 require "active_support/core_ext/module/delegation"
 
+ActiveSupport.deprecator.warn(
+  "ActiveSupport::Multibyte::Chars and String#mb_chars are deprecated and will be removed in Rails 8.2. " \
+  "Use normal string methods instead."
+)
+
 module ActiveSupport # :nodoc:
   module Multibyte # :nodoc:
     # = Active Support \Multibyte \Chars
@@ -55,12 +60,15 @@ module ActiveSupport # :nodoc:
       # Creates a new Chars instance by wrapping _string_.
       def initialize(string)
         @wrapped_string = string
-        @wrapped_string.force_encoding(Encoding::UTF_8) unless @wrapped_string.frozen?
+        if string.encoding != Encoding::UTF_8
+          @wrapped_string = @wrapped_string.dup
+          @wrapped_string.force_encoding(Encoding::UTF_8)
+        end
       end
 
       # Forward all undefined methods to the wrapped string.
-      def method_missing(method, *args, &block)
-        result = @wrapped_string.__send__(method, *args, &block)
+      def method_missing(method, ...)
+        result = @wrapped_string.__send__(method, ...)
         if method.end_with?("!")
           self if result
         else

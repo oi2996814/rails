@@ -23,12 +23,6 @@ module Rails
         super(message)
       end
 
-      if !Exception.method_defined?(:detailed_message)
-        def detailed_message(...)
-          message
-        end
-      end
-
       if defined?(DidYouMean::Correctable) && defined?(DidYouMean::SpellChecker)
         include DidYouMean::Correctable
 

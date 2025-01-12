@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+# :markup: markdown
+
 require "action_dispatch/journey/router/utils"
 require "action_dispatch/journey/routes"
 require "action_dispatch/journey/formatter"
@@ -22,14 +24,14 @@ module ActionDispatch
       end
 
       def eager_load!
-        # Eagerly trigger the simulator's initialization so
-        # it doesn't happen during a request cycle.
+        # Eagerly trigger the simulator's initialization so it doesn't happen during a
+        # request cycle.
         simulator
         nil
       end
 
       def serve(req)
-        find_routes(req).each do |match, parameters, route|
+        find_routes(req) do |match, parameters, route|
           set_params  = req.path_parameters
           path_info   = req.path_info
           script_name = req.script_name
@@ -64,7 +66,7 @@ module ActionDispatch
       end
 
       def recognize(rails_req)
-        find_routes(rails_req).each do |match, parameters, route|
+        find_routes(rails_req) do |match, parameters, route|
           unless route.path.anchored
             rails_req.script_name = match.to_s
             rails_req.path_info   = match.post_match
@@ -121,14 +123,14 @@ module ActionDispatch
 
           routes.sort_by!(&:precedence)
 
-          routes.map! { |r|
+          routes.each { |r|
             match_data = r.path.match(path_info)
             path_parameters = {}
             match_data.names.each_with_index { |name, i|
               val = match_data[i + 1]
               path_parameters[name.to_sym] = Utils.unescape_uri(val) if val
             }
-            [match_data, path_parameters, r]
+            yield [match_data, path_parameters, r]
           }
         end
 

@@ -34,6 +34,10 @@ ActiveSupport::Cache.format_version = 7.1
 # Disable available locale checks to avoid warnings running the test suite.
 I18n.enforce_available_locales = false
 
+ActiveSupport.deprecator.silence do
+  ActiveSupport::Multibyte.const_get(:Chars)
+end
+
 class ActiveSupport::TestCase
   if Process.respond_to?(:fork) && !Gem.win_platform?
     parallelize
@@ -43,12 +47,6 @@ class ActiveSupport::TestCase
 
   include ActiveSupport::Testing::MethodCallAssertions
   include ActiveSupport::Testing::ErrorReporterAssertions
-
-  private
-    # Skips the current run on JRuby using Minitest::Assertions#skip
-    def jruby_skip(message = "")
-      skip message if defined?(JRUBY_VERSION)
-    end
 end
 
 require_relative "../../tools/test_common"
