@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "active_job/arguments"
-
 module ActiveJob
   # Provides behavior for enqueuing jobs.
 
@@ -23,7 +21,7 @@ module ActiveJob
             adapter_jobs.each do |job|
               job.successfully_enqueued = false
               if job.scheduled_at
-                queue_adapter.enqueue_at(job, job.scheduled_at)
+                queue_adapter.enqueue_at(job, job.scheduled_at.to_f)
               else
                 queue_adapter.enqueue(job)
               end
@@ -42,6 +40,19 @@ module ActiveJob
   module Enqueuing
     extend ActiveSupport::Concern
 
+    included do
+      ##
+      # :singleton-method:
+      #
+      # Defines if enqueueing this job from inside an Active Record transaction
+      # automatically defers the enqueue to after the transaction commits.
+      #
+      # It can be set on a per job basis:
+      #  - true forces the job to be deferred.
+      #  - false forces the job to be queued immediately.
+      class_attribute :enqueue_after_transaction_commit, instance_accessor: false, instance_predicate: false, default: false
+    end
+
     # Includes the +perform_later+ method for job initialization.
     module ClassMethods
       # Push a job onto the queue. By default the arguments must be either String,
@@ -52,9 +63,21 @@ module ActiveJob
       # custom serializers.
       #
       # Returns an instance of the job class queued with arguments available in
-      # Job#arguments or false if the enqueue did not succeed.
+      # Job#arguments or +false+ if the enqueue did not succeed.
       #
       # After the attempted enqueue, the job will be yielded to an optional block.
+      #
+      # If Active Job is used conjointly with Active Record, and #perform_later is called
+      # inside an Active Record transaction, then the enqueue is implicitly deferred to after
+      # the transaction is committed, or dropped if it's rolled back. In such case #perform_later
+      # will return the job instance like if it was successfully enqueued, but will still return
+      # +false+ if a callback prevented the job from being enqueued.
+      #
+      # This behavior can be changed on a per job basis:
+      #
+      #  class NotificationJob < ApplicationJob
+      #    self.enqueue_after_transaction_commit = false
+      #  end
       def perform_later(...)
         job = job_or_instantiate(...)
         enqueue_result = job.enqueue
@@ -65,7 +88,7 @@ module ActiveJob
       end
 
       private
-        def job_or_instantiate(*args) # :doc:
+        def job_or_instantiate(*args, &_) # :doc:
           args.first.is_a?(self) ? args.first : new(*args)
         end
         ruby2_keywords(:job_or_instantiate)
@@ -91,15 +114,7 @@ module ActiveJob
       self.successfully_enqueued = false
 
       run_callbacks :enqueue do
-        if scheduled_at
-          queue_adapter.enqueue_at self, scheduled_at
-        else
-          queue_adapter.enqueue self
-        end
-
-        self.successfully_enqueued = true
-      rescue EnqueueError => e
-        self.enqueue_error = e
+        raw_enqueue
       end
 
       if successfully_enqueued?
@@ -108,5 +123,18 @@ module ActiveJob
         false
       end
     end
+
+    private
+      def raw_enqueue
+        if scheduled_at
+          queue_adapter.enqueue_at self, scheduled_at.to_f
+        else
+          queue_adapter.enqueue self
+        end
+
+        self.successfully_enqueued = true
+      rescue EnqueueError => e
+        self.enqueue_error = e
+      end
   end
 end

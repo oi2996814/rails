@@ -16,7 +16,7 @@ module ActiveRecord
       delegate :quote_column_name, :quote_table_name, :quote_default_expression, :type_to_sql,
         :options_include_default?, :supports_indexes_in_create?, :use_foreign_keys?,
         :quoted_columns_for_index, :supports_partial_index?, :supports_check_constraints?,
-        :supports_index_include?, :supports_exclusion_constraints?, :supports_unique_keys?,
+        :supports_index_include?, :supports_exclusion_constraints?, :supports_unique_constraints?,
         :supports_nulls_not_distinct?,
         to: :@conn, private: true
 
@@ -28,6 +28,7 @@ module ActiveRecord
           sql << o.foreign_key_drops.map { |fk| visit_DropForeignKey fk }.join(" ")
           sql << o.check_constraint_adds.map { |con| visit_AddCheckConstraint con }.join(" ")
           sql << o.check_constraint_drops.map { |con| visit_DropCheckConstraint con }.join(" ")
+          sql << o.constraint_drops.map { |con| visit_DropConstraint con }.join(" ")
         end
 
         def visit_ColumnDefinition(o)
@@ -65,8 +66,8 @@ module ActiveRecord
             statements.concat(o.exclusion_constraints.map { |exc| accept exc })
           end
 
-          if supports_unique_keys?
-            statements.concat(o.unique_keys.map { |exc| accept exc })
+          if supports_unique_constraints?
+            statements.concat(o.unique_constraints.map { |exc| accept exc })
           end
 
           create_sql << "(#{statements.join(', ')})" if statements.present?
@@ -80,10 +81,12 @@ module ActiveRecord
         end
 
         def visit_ForeignKeyDefinition(o)
+          quoted_columns = Array(o.column).map { |c| quote_column_name(c) }
+          quoted_primary_keys = Array(o.primary_key).map { |c| quote_column_name(c) }
           sql = +<<~SQL
             CONSTRAINT #{quote_column_name(o.name)}
-            FOREIGN KEY (#{quote_column_name(o.column)})
-              REFERENCES #{quote_table_name(o.to_table)} (#{quote_column_name(o.primary_key)})
+            FOREIGN KEY (#{quoted_columns.join(", ")})
+              REFERENCES #{quote_table_name(o.to_table)} (#{quoted_primary_keys.join(", ")})
           SQL
           sql << " #{action_sql('DELETE', o.on_delete)}" if o.on_delete
           sql << " #{action_sql('UPDATE', o.on_update)}" if o.on_update
@@ -94,9 +97,11 @@ module ActiveRecord
           "ADD #{accept(o)}"
         end
 
-        def visit_DropForeignKey(name)
+        def visit_DropConstraint(name)
           "DROP CONSTRAINT #{quote_column_name(name)}"
         end
+        alias :visit_DropForeignKey :visit_DropConstraint
+        alias :visit_DropCheckConstraint :visit_DropConstraint
 
         def visit_CreateIndexDefinition(o)
           index = o.index
@@ -123,10 +128,6 @@ module ActiveRecord
 
         def visit_AddCheckConstraint(o)
           "ADD #{accept(o)}"
-        end
-
-        def visit_DropCheckConstraint(name)
-          "DROP CONSTRAINT #{quote_column_name(name)}"
         end
 
         def quoted_columns(o)

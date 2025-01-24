@@ -21,8 +21,7 @@ module ActiveRecord
       # New migration functionality that will never be backward compatible should be added directly to `ActiveRecord::Migration`.
       #
       # There are classes for each prior Rails version. Each class descends from the *next* Rails version, so:
-      # 7.0 < 7.1
-      # 5.2 < 6.0 < 6.1 < 7.0 < 7.1
+      # 5.2 < 6.0 < 6.1 < 7.0 < 7.1 < 7.2 < 8.0 < 8.1
       #
       # If you are introducing new migration functionality that should only apply from Rails 7 onward, then you should
       # find the class that immediately precedes it (6.1), and override the relevant migration methods to undo your changes.
@@ -30,7 +29,16 @@ module ActiveRecord
       # For example, Rails 6 added a default value for the `precision` option on datetime columns. So in this file, the `V5_2`
       # class sets the value of `precision` to `nil` if it's not explicitly provided. This way, the default value will not apply
       # for migrations written for 5.2, but will for migrations written for 6.0.
-      V7_1 = Current
+      V8_1 = Current
+
+      class V8_0 < V8_1
+      end
+
+      class V7_2 < V8_0
+      end
+
+      class V7_1 < V7_2
+      end
 
       class V7_0 < V7_1
         module LegacyIndexName
@@ -61,8 +69,10 @@ module ActiveRecord
               column_name.is_a?(String) && /\W/.match?(column_name)
             end
         end
+
         module TableDefinition
           include LegacyIndexName
+
           def column(name, type, **options)
             options[:_skip_validate_options] = true
             super
@@ -75,6 +85,11 @@ module ActiveRecord
 
           def index(column_name, **options)
             options[:name] = legacy_index_name(name, column_name) if options[:name].nil?
+            super
+          end
+
+          def references(*args, **options)
+            options[:_skip_validate_options] = true
             super
           end
 
@@ -95,6 +110,12 @@ module ActiveRecord
           super
         end
 
+        def add_reference(table_name, ref_name, **options)
+          options[:_skip_validate_options] = true
+          super
+        end
+        alias :add_belongs_to :add_reference
+
         def create_table(table_name, **options)
           options[:_uses_legacy_table_name] = true
           options[:_skip_validate_options] = true
@@ -104,6 +125,7 @@ module ActiveRecord
 
         def rename_table(table_name, new_name, **options)
           options[:_uses_legacy_table_name] = true
+          options[:_uses_legacy_index_name] = true
           super
         end
 
@@ -423,7 +445,7 @@ module ActiveRecord
           super
         end
 
-        def index_exists?(table_name, column_name, **options)
+        def index_exists?(table_name, column_name = nil, **options)
           column_names = Array(column_name).map(&:to_s)
           options[:name] =
             if options[:name].present?
