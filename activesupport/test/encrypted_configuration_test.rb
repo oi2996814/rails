@@ -53,7 +53,7 @@ class EncryptedConfigurationTest < ActiveSupport::TestCase
   test "reading comment-only configuration" do
     @credentials.write("# comment")
 
-    assert_equal @credentials.config, {}
+    assert_equal({}, @credentials.config)
   end
 
   test "writing with element assignment and reading with element reference" do
@@ -89,6 +89,42 @@ class EncryptedConfigurationTest < ActiveSupport::TestCase
     @credentials.write("key: value\nbad")
 
     assert_raise(ActiveSupport::EncryptedConfiguration::InvalidContentError) do
+      @credentials.validate!
+    end
+  end
+
+  test "raises helpful error when loading invalid content with unsupported keys" do
+    @credentials.write("42: value")
+
+    assert_raise(ActiveSupport::EncryptedConfiguration::InvalidKeyError, match: /Key '42' is invalid, it must respond to '#to_sym' from configuration in '#{@credentials_config_path}'./) do
+      @credentials.config
+    end
+
+    @credentials.write("42.0: value")
+    assert_raise(ActiveSupport::EncryptedConfiguration::InvalidKeyError, match: /Key '42.0' is invalid, it must respond to '#to_sym' from configuration in '#{@credentials_config_path}'./) do
+      @credentials.config
+    end
+
+    @credentials.write("Off: value")
+    assert_raise(ActiveSupport::EncryptedConfiguration::InvalidKeyError, match: /Key 'false' is invalid, it must respond to '#to_sym' from configuration in '#{@credentials_config_path}'./) do
+      @credentials.config
+    end
+  end
+
+  test "raises helpful error when validating invalid content with unsupported keys" do
+    @credentials.write("42: value")
+
+    assert_raise(ActiveSupport::EncryptedConfiguration::InvalidKeyError, match: /Key '42' is invalid, it must respond to '#to_sym' from configuration in '#{@credentials_config_path}'./) do
+      @credentials.validate!
+    end
+
+    @credentials.write("42.0: value")
+    assert_raise(ActiveSupport::EncryptedConfiguration::InvalidKeyError, match: /Key '42.0' is invalid, it must respond to '#to_sym' from configuration in '#{@credentials_config_path}'./) do
+      @credentials.validate!
+    end
+
+    @credentials.write("Off: value")
+    assert_raise(ActiveSupport::EncryptedConfiguration::InvalidKeyError, match: /Key 'false' is invalid, it must respond to '#to_sym' from configuration in '#{@credentials_config_path}'./) do
       @credentials.validate!
     end
   end

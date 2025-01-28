@@ -11,14 +11,25 @@ module ActiveRecord
       def initialize(env_name, name)
         @env_name = env_name
         @name = name
+        @adapter_class = nil
       end
 
-      def adapter_method
-        "#{adapter}_connection"
+      def adapter_class
+        @adapter_class ||= ActiveRecord::ConnectionAdapters.resolve(adapter)
       end
 
-      def adapter_class_method
-        "#{adapter}_adapter_class"
+      def inspect # :nodoc:
+        "#<#{self.class.name} env_name=#{@env_name} name=#{@name} adapter_class=#{adapter_class}>"
+      end
+
+      def new_connection
+        adapter_class.new(configuration_hash)
+      end
+
+      def validate!
+        adapter_class if adapter
+
+        true
       end
 
       def host
@@ -82,6 +93,14 @@ module ActiveRecord
       end
 
       def schema_cache_path
+        raise NotImplementedError
+      end
+
+      def use_metadata_table?
+        raise NotImplementedError
+      end
+
+      def seeds?
         raise NotImplementedError
       end
     end
