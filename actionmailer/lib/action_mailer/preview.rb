@@ -25,31 +25,7 @@ module ActionMailer
       mattr_accessor :preview_interceptors, instance_writer: false, default: [ActionMailer::InlinePreviewInterceptor]
     end
 
-    def preview_path
-      ActionMailer.deprecator.warn(<<-MSG.squish)
-        Using preview_path option is deprecated and will be removed in Rails 7.2.
-        Please use preview_paths instead.
-      MSG
-      self.class.preview_paths.first
-    end
-
     module ClassMethods
-      def preview_path=(value)
-        ActionMailer.deprecator.warn(<<-MSG.squish)
-          Using preview_path= option is deprecated and will be removed in Rails 7.2.
-          Please use preview_paths= instead.
-        MSG
-        self.preview_paths << value
-      end
-
-      def preview_path
-        ActionMailer.deprecator.warn(<<-MSG.squish)
-          Using preview_path option is deprecated and will be removed in Rails 7.2.
-          Please use preview_paths instead.
-        MSG
-        self.preview_paths.first
-      end
-
       # Register one or more Interceptors which will be called before mail is previewed.
       def register_preview_interceptors(*interceptors)
         interceptors.flatten.compact.each { |interceptor| register_preview_interceptor(interceptor) }
@@ -144,7 +120,7 @@ module ActionMailer
       private
         def load_previews
           preview_paths.each do |preview_path|
-            Dir["#{preview_path}/**/*_preview.rb"].sort.each { |file| require_dependency file }
+            Dir["#{preview_path}/**/*_preview.rb"].sort.each { |file| require file }
           end
         end
 

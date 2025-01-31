@@ -5,13 +5,13 @@ module ActiveRecord
     module MySQL
       module DatabaseStatements
         READ_QUERY = AbstractAdapter.build_read_query_regexp(
-          :desc, :describe, :set, :show, :use
+          :desc, :describe, :set, :show, :use, :kill
         ) # :nodoc:
         private_constant :READ_QUERY
 
         # https://dev.mysql.com/doc/refman/5.7/en/date-and-time-functions.html#function_current-timestamp
         # https://dev.mysql.com/doc/refman/5.7/en/date-and-time-type-syntax.html
-        HIGH_PRECISION_CURRENT_TIMESTAMP = Arel.sql("CURRENT_TIMESTAMP(6)").freeze # :nodoc:
+        HIGH_PRECISION_CURRENT_TIMESTAMP = Arel.sql("CURRENT_TIMESTAMP(6)", retryable: true).freeze # :nodoc:
         private_constant :HIGH_PRECISION_CURRENT_TIMESTAMP
 
         def write_query?(sql) # :nodoc:
@@ -53,6 +53,14 @@ module ActiveRecord
 
           def default_insert_value(column)
             super unless column.auto_increment?
+          end
+
+          def returning_column_values(result)
+            if supports_insert_returning?
+              result.rows.first
+            else
+              super
+            end
           end
 
           def combine_multi_statements(total_sql)

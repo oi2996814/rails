@@ -161,11 +161,54 @@ class ErrorReporterTest < ActiveSupport::TestCase
     assert_equal [[error, false, :error, "application", {}]], @subscriber.events
   end
 
+  test "#report assigns a backtrace if it's missing" do
+    error = RuntimeError.new("Oops")
+    assert_nil error.backtrace
+    assert_nil error.backtrace_locations
+
+    assert_nil @reporter.report(error)
+    assert_not_predicate error.backtrace, :empty?
+    assert_not_predicate error.backtrace_locations, :empty?
+  end
+
   test "#record passes through the return value" do
     result = @reporter.record do
       2 + 2
     end
     assert_equal 4, result
+  end
+
+  test "#unexpected swallows errors by default" do
+    error = RuntimeError.new("Oops")
+    assert_nil @reporter.unexpected(error)
+    assert_equal [[error, true, :warning, "application", {}]], @subscriber.events
+    assert_not_predicate error.backtrace, :empty?
+    assert_not_predicate error.backtrace_locations, :empty?
+  end
+
+  test "#unexpected accepts an error message" do
+    assert_nil @reporter.unexpected("Oops")
+    assert_equal 1, @subscriber.events.size
+
+    error, *event_details = @subscriber.events.first
+    assert_equal [true, :warning, "application", {}], event_details
+
+    assert_equal "Oops", error.message
+    assert_equal RuntimeError, error.class
+    assert_not_predicate error.backtrace, :empty?
+  end
+
+  test "#unexpected re-raise errors in development and test" do
+    @reporter.debug_mode = true
+    error = RuntimeError.new("Oops")
+    raise_line = __LINE__ + 2
+    raised_error = assert_raises ActiveSupport::ErrorReporter::UnexpectedError do
+      @reporter.unexpected(error)
+    end
+    assert_includes raised_error.message, "RuntimeError: Oops"
+    assert_not_nil raised_error.cause
+    assert_same error, raised_error.cause
+    assert_includes raised_error.backtrace.first, "#{__FILE__}:#{raise_line}"
   end
 
   test "can have multiple subscribers" do
@@ -214,6 +257,38 @@ class ErrorReporterTest < ActiveSupport::TestCase
     assert_equal :error, @subscriber.events.dig(0, 2)
   end
 
+  test "errors be reported with valid severity" do
+    ActiveSupport::ErrorReporter::SEVERITIES.each do |severity|
+      @reporter.report(StandardError.new, severity: severity)
+      assert_equal severity, @subscriber.events.last[2]
+    end
+  end
+
+  test "errors with invalid severity raise" do
+    assert_raises ArgumentError do
+      @reporter.report(@error, severity: :invalid)
+    end
+  end
+
+  test "report raises if passed an argument that is not an Exception" do
+    error = assert_raises ArgumentError do
+      @reporter.report(Object.new)
+    end
+    assert_includes error.message, "Reported error must be an Exception"
+  end
+
+  test "report raises if passed a String" do
+    error = assert_raises ArgumentError do
+      @reporter.report("An error message")
+    end
+    assert_includes error.message, "Reported error must be an Exception"
+  end
+
+  test "report accepts context as nil" do
+    @reporter.report(@error, context: nil)
+    assert_equal({}, @subscriber.events.last[4])
+  end
+
   test "report errors only once" do
     assert_difference -> { @subscriber.events.size }, +1 do
       @reporter.report(@error, handled: false)
@@ -222,6 +297,31 @@ class ErrorReporterTest < ActiveSupport::TestCase
     assert_no_difference -> { @subscriber.events.size } do
       3.times do
         @reporter.report(@error, handled: false)
+      end
+    end
+  end
+
+  test "causes can't be reported again either" do
+    begin
+      begin
+        begin
+          raise "Original"
+        rescue
+          raise "Another"
+        end
+      rescue
+        raise "Yet Another"
+      end
+    rescue => @error
+    end
+
+    assert_difference -> { @subscriber.events.size }, +1 do
+      @reporter.report(@error, handled: false)
+    end
+
+    assert_no_difference -> { @subscriber.events.size } do
+      3.times do
+        @reporter.report(@error.cause.cause, handled: false)
       end
     end
   end

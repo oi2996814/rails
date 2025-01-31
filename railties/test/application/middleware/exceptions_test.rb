@@ -82,6 +82,7 @@ module ApplicationTests
       app_file "config/routes.rb", <<-RUBY
         Rails.application.routes.draw do
           get "/foo", to: "foo#index"
+          post "/foo", to: "foo#index"
           match "/406", to: "foo#not_acceptable", via: :all
         end
       RUBY
@@ -91,6 +92,18 @@ module ApplicationTests
       add_to_config "config.consider_all_requests_local = false"
 
       get "/foo", {}, { "HTTP_ACCEPT" => "invalid", "HTTPS" => "on" }
+      assert_equal 406, last_response.status
+      assert_not_equal "rendering index!", last_response.body
+
+      get "/foo", {}, { "CONTENT_TYPE" => "invalid", "HTTPS" => "on" }
+      assert_equal 406, last_response.status
+      assert_not_equal "rendering index!", last_response.body
+
+      get "/foo", {}, { "HTTP_ACCEPT" => "invalid", "CONTENT_TYPE" => "invalid", "HTTPS" => "on" }
+      assert_equal 406, last_response.status
+      assert_not_equal "rendering index!", last_response.body
+
+      post "/foo", {}, { "HTTP_ACCEPT" => "invalid", "CONTENT_TYPE" => "invalid", "HTTPS" => "on" }
       assert_equal 406, last_response.status
       assert_not_equal "rendering index!", last_response.body
     end
@@ -213,7 +226,7 @@ module ApplicationTests
       app.config.action_dispatch.show_exceptions = :all
       app.config.consider_all_requests_local = true
 
-      limit = Rack::Utils.param_depth_limit + 1
+      limit = ActionDispatch::ParamBuilder.default.param_depth_limit + 1
       malicious_url = "/foo?#{'[test]' * limit}=test"
 
       get(malicious_url, {}, "HTTPS" => "on")
@@ -244,7 +257,7 @@ module ApplicationTests
       assert_match "ActiveRecord::StatementInvalid", last_response.body
     end
 
-    test "show_exceptions :rescubale with a rescuable error" do
+    test "show_exceptions :rescuable with a rescuable error" do
       controller :foo, <<-RUBY
         class FooController < ActionController::Base
           def index
@@ -259,7 +272,7 @@ module ApplicationTests
       assert_equal 404, last_response.status
     end
 
-    test "show_exceptions :rescubale with a non-rescuable error" do
+    test "show_exceptions :rescuable with a non-rescuable error" do
       controller :foo, <<-RUBY
         class FooController < ActionController::Base
           def index

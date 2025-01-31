@@ -24,11 +24,11 @@ module ActiveSupport
     #
     # Special features:
     # - Clustering and load balancing. One can specify multiple memcached servers,
-    #   and MemCacheStore will load balance between all available servers. If a
-    #   server goes down, then MemCacheStore will ignore it until it comes back up.
+    #   and +MemCacheStore+ will load balance between all available servers. If a
+    #   server goes down, then +MemCacheStore+ will ignore it until it comes back up.
     #
-    # MemCacheStore implements the Strategy::LocalCache strategy which implements
-    # an in-memory cache inside of a block.
+    # +MemCacheStore+ implements the Strategy::LocalCache strategy which
+    # implements an in-memory cache inside of a block.
     class MemCacheStore < Store
       # These options represent behavior overridden by this implementation and should
       # not be allowed to get down to the Dalli client
@@ -40,46 +40,6 @@ module ActiveSupport
       end
 
       prepend Strategy::LocalCache
-
-      module DupLocalCache
-        class DupLocalStore < DelegateClass(Strategy::LocalCache::LocalStore)
-          def write_entry(_key, entry)
-            if entry.is_a?(Entry)
-              entry.dup_value!
-            end
-            super
-          end
-
-          def fetch_entry(key)
-            entry = super do
-              new_entry = yield
-              if entry.is_a?(Entry)
-                new_entry.dup_value!
-              end
-              new_entry
-            end
-            entry = entry.dup
-
-            if entry.is_a?(Entry)
-              entry.dup_value!
-            end
-
-            entry
-          end
-        end
-
-        private
-          def local_cache
-            if ActiveSupport::Cache.format_version == 6.1
-              if local_cache = super
-                DupLocalStore.new(local_cache)
-              end
-            else
-              super
-            end
-          end
-      end
-      prepend DupLocalCache
 
       KEY_MAX_SIZE = 250
       ESCAPE_KEY_CHARS = /[\x00-\x20%\x7F-\xFF]/n
@@ -106,15 +66,14 @@ module ActiveSupport
         end
       end
 
-      # Creates a new MemCacheStore object, with the given memcached server
+      # Creates a new +MemCacheStore+ object, with the given memcached server
       # addresses. Each address is either a host name, or a host-with-port string
       # in the form of "host_name:port". For example:
       #
       #   ActiveSupport::Cache::MemCacheStore.new("localhost", "server-downstairs.localnetwork:8229")
       #
       # If no addresses are provided, but <tt>ENV['MEMCACHE_SERVERS']</tt> is defined, it will be used instead. Otherwise,
-      # MemCacheStore will connect to localhost:11211 (the default memcached port).
-      # Passing a +Dalli::Client+ instance is deprecated and will be removed. Please pass an address instead.
+      # +MemCacheStore+ will connect to localhost:11211 (the default memcached port).
       def initialize(*addresses)
         addresses = addresses.flatten
         options = addresses.extract_options!
@@ -126,19 +85,12 @@ module ActiveSupport
         unless [String, Dalli::Client, NilClass].include?(addresses.first.class)
           raise ArgumentError, "First argument must be an empty array, address, or array of addresses."
         end
-        if addresses.first.is_a?(Dalli::Client)
-          ActiveSupport.deprecator.warn(<<~MSG)
-            Initializing MemCacheStore with a Dalli::Client is deprecated and will be removed in Rails 7.2.
-            Use memcached server addresses instead.
-          MSG
-          @data = addresses.first
-        else
-          @mem_cache_options = options.dup
-          # The value "compress: false" prevents duplicate compression within Dalli.
-          @mem_cache_options[:compress] = false
-          (OVERRIDDEN_OPTIONS - %i(compress)).each { |name| @mem_cache_options.delete(name) }
-          @data = self.class.build_mem_cache(*(addresses + [@mem_cache_options]))
-        end
+
+        @mem_cache_options = options.dup
+        # The value "compress: false" prevents duplicate compression within Dalli.
+        @mem_cache_options[:compress] = false
+        (OVERRIDDEN_OPTIONS - %i(compress)).each { |name| @mem_cache_options.delete(name) }
+        @data = self.class.build_mem_cache(*(addresses + [@mem_cache_options]))
       end
 
       def inspect
@@ -158,9 +110,6 @@ module ActiveSupport
       # * <tt>raw: true</tt> - Sends the value directly to the server as raw
       #   bytes. The value must be a string or number. You can use memcached
       #   direct operations like +increment+ and +decrement+ only on raw values.
-      #
-      # * <tt>unless_exist: true</tt> - Prevents overwriting an existing cache
-      #   entry.
 
       # Increment a cached integer value using the memcached incr atomic operator.
       # Returns the updated value.
@@ -179,9 +128,11 @@ module ActiveSupport
       # <tt>raw: true</tt>, will fail and return +nil+.
       def increment(name, amount = 1, options = nil)
         options = merged_options(options)
-        instrument(:increment, name, amount: amount) do
+        key = normalize_key(name, options)
+
+        instrument(:increment, key, amount: amount) do
           rescue_error_with nil do
-            @data.with { |c| c.incr(normalize_key(name, options), amount, options[:expires_in], amount) }
+            @data.with { |c| c.incr(key, amount, options[:expires_in], amount) }
           end
         end
       end
@@ -203,9 +154,11 @@ module ActiveSupport
       # <tt>raw: true</tt>, will fail and return +nil+.
       def decrement(name, amount = 1, options = nil)
         options = merged_options(options)
-        instrument(:decrement, name, amount: amount) do
+        key = normalize_key(name, options)
+
+        instrument(:decrement, key, amount: amount) do
           rescue_error_with nil do
-            @data.with { |c| c.decr(normalize_key(name, options), amount, options[:expires_in], 0) }
+            @data.with { |c| c.decr(key, amount, options[:expires_in], 0) }
           end
         end
       end
@@ -222,20 +175,6 @@ module ActiveSupport
       end
 
       private
-        def default_serializer
-          if Cache.format_version == 6.1
-            ActiveSupport.deprecator.warn <<~EOM
-              Support for `config.active_support.cache_format_version = 6.1` has been deprecated and will be removed in Rails 7.2.
-
-              Check the Rails upgrade guide at https://guides.rubyonrails.org/upgrading_ruby_on_rails.html#new-activesupport-cache-serialization-format
-              for more information on how to upgrade.
-            EOM
-            Cache::SerializerWithFallback[:passthrough]
-          else
-            super
-          end
-        end
-
         # Read an entry from the cache.
         def read_entry(key, **options)
           deserialize_entry(read_serialized_entry(key, **options), **options)
@@ -259,10 +198,10 @@ module ActiveSupport
             # Set the memcache expire a few minutes in the future to support race condition ttls on read
             expires_in += 5.minutes
           end
-          rescue_error_with false do
+          rescue_error_with nil do
             # Don't pass compress option to Dalli since we are already dealing with compression.
             options.delete(:compress)
-            @data.with { |c| c.send(method, key, payload, expires_in, **options) }
+            @data.with { |c| !!c.send(method, key, payload, expires_in, **options) }
           end
         end
 
@@ -270,14 +209,22 @@ module ActiveSupport
         def read_multi_entries(names, **options)
           keys_to_names = names.index_by { |name| normalize_key(name, options) }
 
-          raw_values = @data.with { |c| c.get_multi(keys_to_names.keys) }
+          raw_values = begin
+            @data.with { |c| c.get_multi(keys_to_names.keys) }
+          rescue Dalli::UnmarshalError
+            {}
+          end
+
           values = {}
 
           raw_values.each do |key, value|
             entry = deserialize_entry(value, raw: options[:raw])
 
             unless entry.nil? || entry.expired? || entry.mismatched?(normalize_version(keys_to_names[key], options))
-              values[keys_to_names[key]] = entry.value
+              begin
+                values[keys_to_names[key]] = entry.value
+              rescue DeserializationError
+              end
             end
           end
 

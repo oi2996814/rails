@@ -28,9 +28,9 @@ module ActiveRecord
     def self.references(attributes)
       attributes.each_with_object([]) do |(key, value), result|
         if value.is_a?(Hash)
-          result << Arel.sql(key)
+          result << Arel.sql(key, retryable: true)
         elsif (idx = key.rindex("."))
-          result << Arel.sql(key[0, idx])
+          result << Arel.sql(key[0, idx], retryable: true)
         end
       end
     end
@@ -72,11 +72,24 @@ module ActiveRecord
       table.associated_table(table_name, &block).arel_table[column_name]
     end
 
+    def with(table)
+      other = dup
+      other.table = table
+      other
+    end
+
     protected
+      attr_writer :table
+
       def expand_from_hash(attributes, &block)
         return ["1=0"] if attributes.empty?
 
         attributes.flat_map do |key, value|
+          if key.is_a?(Array) && key.size == 1
+            key = key.first
+            value = value.flatten
+          end
+
           if key.is_a?(Array)
             queries = Array(value).map do |ids_set|
               raise ArgumentError, "Expected corresponding value for #{key} to be an Array" unless ids_set.is_a?(Array)
@@ -142,7 +155,7 @@ module ActiveRecord
           queries.first
         else
           queries.map! { |query| query.reduce(&:and) }
-          queries = queries.reduce { |result, query| Arel::Nodes::Or.new(result, query) }
+          queries = Arel::Nodes::Or.new(queries)
           Arel::Nodes::Grouping.new(queries)
         end
       end
