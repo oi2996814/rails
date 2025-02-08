@@ -178,11 +178,33 @@ class SignedIdTest < ActiveRecord::TestCase
     ActiveRecord::Base.signed_id_verifier_secret = SIGNED_ID_VERIFIER_TEST_SECRET
   end
 
+  test "always output url_safe" do
+    signed_id = @account.signed_id(purpose: "~~~~~~~~~")
+    assert_not signed_id.include?("+")
+  end
+
   test "use a custom verifier" do
     old_verifier = Account.signed_id_verifier
     Account.signed_id_verifier = ActiveSupport::MessageVerifier.new("sekret")
     assert_not_equal ActiveRecord::Base.signed_id_verifier, Account.signed_id_verifier
     assert_equal @account, Account.find_signed(@account.signed_id)
+  ensure
+    Account.signed_id_verifier = old_verifier
+  end
+
+  test "on_rotation callback using find_signed & find_signed!" do
+    old_verifier = Account.signed_id_verifier
+
+    Account.signed_id_verifier = ActiveSupport::MessageVerifier.new("old secret")
+    old_account_signed_id = @account.signed_id
+    Account.signed_id_verifier = ActiveSupport::MessageVerifier.new("new secret")
+    Account.signed_id_verifier.rotate("old secret")
+    on_rotation_is_called = false
+    assert Account.find_signed(old_account_signed_id, on_rotation: -> { on_rotation_is_called = true })
+    assert on_rotation_is_called
+    on_rotation_is_called = false
+    assert Account.find_signed!(old_account_signed_id, on_rotation: -> { on_rotation_is_called = true })
+    assert on_rotation_is_called
   ensure
     Account.signed_id_verifier = old_verifier
   end

@@ -1,15 +1,17 @@
 # frozen_string_literal: true
 
+# :markup: markdown
+
 require "action_dispatch/middleware/exception_wrapper"
 require "action_dispatch/routing/inspector"
 
 require "action_view"
 
 module ActionDispatch
-  # = Action Dispatch \DebugExceptions
+  # # Action Dispatch DebugExceptions
   #
-  # This middleware is responsible for logging exceptions and
-  # showing a debugging page in case the request is local.
+  # This middleware is responsible for logging exceptions and showing a debugging
+  # page in case the request is local.
   class DebugExceptions
     cattr_reader :interceptors, instance_accessor: false, default: []
 
@@ -115,8 +117,8 @@ module ActionDispatch
         DebugView.new(
           request: request,
           exception_wrapper: wrapper,
-          # Everything should use the wrapper, but we need to pass
-          # `exception` for legacy code.
+          # Everything should use the wrapper, but we need to pass `exception` for legacy
+          # code.
           exception: wrapper.exception,
           traces: wrapper.traces,
           show_source_idx: wrapper.source_to_show_id,
@@ -140,10 +142,29 @@ module ActionDispatch
 
         message = []
         message << "  "
-        message << "#{wrapper.exception_class_name} (#{wrapper.message}):"
+        if wrapper.has_cause?
+          message << "#{wrapper.exception_class_name} (#{wrapper.message})"
+          wrapper.wrapped_causes.each do |wrapped_cause|
+            message << "Caused by: #{wrapped_cause.exception_class_name} (#{wrapped_cause.message})"
+          end
+
+          message << "\nInformation for: #{wrapper.exception_class_name} (#{wrapper.message}):"
+        else
+          message << "#{wrapper.exception_class_name} (#{wrapper.message}):"
+        end
+
         message.concat(wrapper.annotated_source_code)
         message << "  "
         message.concat(trace)
+
+        if wrapper.has_cause?
+          wrapper.wrapped_causes.each do |wrapped_cause|
+            message << "\nInformation for cause: #{wrapped_cause.exception_class_name} (#{wrapped_cause.message}):"
+            message.concat(wrapped_cause.annotated_source_code)
+            message << "  "
+            message.concat(wrapped_cause.exception_trace)
+          end
+        end
 
         log_array(logger, message, request)
       end

@@ -9,12 +9,12 @@ module ActiveRecord
     # it was opened, an ActiveRecord::StaleObjectError exception is thrown if that has occurred
     # and the update is ignored.
     #
-    # Check out +ActiveRecord::Locking::Pessimistic+ for an alternative.
+    # Check out ActiveRecord::Locking::Pessimistic for an alternative.
     #
     # == Usage
     #
     # Active Record supports optimistic locking if the +lock_version+ field is present. Each update to the
-    # record increments the +lock_version+ column and the locking facilities ensure that records instantiated twice
+    # record increments the integer column +lock_version+ and the locking facilities ensure that records instantiated twice
     # will let the last one saved raise a +StaleObjectError+ if the first was also updated. Example:
     #
     #   p1 = Person.find(1)
@@ -101,6 +101,13 @@ module ActiveRecord
             attribute_names = attribute_names.dup if attribute_names.frozen?
             attribute_names << locking_column
 
+            if self[locking_column].nil?
+              raise(<<-MSG.squish)
+                For optimistic locking, locking_column ('#{locking_column}') can't be nil.
+                Are you missing a default value or validation on '#{locking_column}'?
+              MSG
+            end
+
             self[locking_column] += 1
 
             affected_rows = self.class._update_record(
@@ -182,14 +189,15 @@ module ActiveRecord
             super
           end
 
-          def define_attribute(name, cast_type, **) # :nodoc:
-            if lock_optimistically && name == locking_column
-              cast_type = LockingType.new(cast_type)
-            end
-            super
-          end
-
           private
+            def hook_attribute_type(name, cast_type)
+              if lock_optimistically && name == locking_column
+                cast_type = LockingType.new(cast_type)
+              end
+
+              super
+            end
+
             def inherited(base)
               super
               base.class_eval do

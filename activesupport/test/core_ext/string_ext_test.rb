@@ -25,7 +25,7 @@ class StringInflectionsTest < ActiveSupport::TestCase
   end
 
   def test_strip_heredoc_on_a_frozen_string
-    assert "".strip_heredoc.frozen?
+    assert_predicate "".strip_heredoc, :frozen?
   end
 
   def test_strip_heredoc_on_a_string_with_no_lines
@@ -100,6 +100,7 @@ class StringInflectionsTest < ActiveSupport::TestCase
 
   def test_downcase_first_with_empty_string
     assert_equal "", "".downcase_first
+    assert_not_predicate "".downcase_first, :frozen?
   end
 
   def test_upcase_first
@@ -112,6 +113,7 @@ class StringInflectionsTest < ActiveSupport::TestCase
 
   def test_upcase_first_with_empty_string
     assert_equal "", "".upcase_first
+    assert_not_predicate "".upcase_first, :frozen?
   end
 
   def test_camelize
@@ -372,6 +374,15 @@ class StringInflectionsTest < ActiveSupport::TestCase
 
     assert_equal "a ", "a 👩‍❤️‍👩".truncate_bytes(13, omission: nil)
     assert_equal "", "👩‍❤️‍👩".truncate_bytes(13, omission: nil)
+  end
+
+  def test_truncates_bytes_preserves_encoding
+    original = String.new("a" * 30, encoding: Encoding::UTF_8)
+
+    assert_equal Encoding::UTF_8, original.truncate_bytes(15).encoding
+    assert_equal Encoding::UTF_8, original.truncate_bytes(15, omission: nil).encoding
+    assert_equal Encoding::UTF_8, original.truncate_bytes(15, omission: " ").encoding
+    assert_equal Encoding::UTF_8, original.truncate_bytes(15, omission: "🖖").encoding
   end
 
   def test_truncate_words
@@ -790,7 +801,9 @@ class CoreExtStringMultibyteTest < ActiveSupport::TestCase
   end
 
   def test_mb_chars_returns_instance_of_proxy_class
-    assert_kind_of ActiveSupport::Multibyte.proxy_class, UTF8_STRING.mb_chars
+    assert_deprecated ActiveSupport.deprecator do
+      assert_kind_of ActiveSupport::Multibyte.proxy_class, UTF8_STRING.mb_chars
+    end
   end
 end
 

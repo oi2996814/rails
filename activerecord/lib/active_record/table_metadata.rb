@@ -19,20 +19,11 @@ module ActiveRecord
     end
 
     def has_column?(column_name)
-      klass&.columns_hash.key?(column_name)
+      klass&.columns_hash&.key?(column_name)
     end
 
     def associated_with?(table_name)
-      if reflection = klass&._reflect_on_association(table_name)
-        reflection
-      elsif ActiveRecord.allow_deprecated_singular_associations_name && reflection = klass&._reflect_on_association(table_name.singularize)
-        ActiveRecord.deprecator.warn(<<~MSG)
-          Referring to a singular association (e.g. `#{reflection.name}`) by its plural name (e.g. `#{reflection.plural_name}`) is deprecated.
-
-          To convert this deprecation warning to an error and enable more performant behavior, set config.active_record.allow_deprecated_singular_associations_name = false.
-        MSG
-        reflection
-      end
+      klass&._reflect_on_association(table_name)
     end
 
     def associated_table(table_name)
@@ -78,9 +69,7 @@ module ActiveRecord
 
     def predicate_builder
       if klass
-        predicate_builder = klass.predicate_builder.dup
-        predicate_builder.instance_variable_set(:@table, self)
-        predicate_builder
+        klass.predicate_builder.with(self)
       else
         PredicateBuilder.new(self)
       end

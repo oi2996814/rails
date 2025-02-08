@@ -75,7 +75,7 @@ module ActiveRecord
       end
 
       def test_rename_nonexistent_column
-        exception = if current_adapter?(:PostgreSQLAdapter, :OracleAdapter)
+        exception = if current_adapter?(:PostgreSQLAdapter)
           ActiveRecord::StatementInvalid
         else
           ActiveRecord::ActiveRecordError
@@ -147,7 +147,7 @@ module ActiveRecord
 
         # Every database and/or database adapter has their own behavior
         # if it drops the multi-column index when any of the indexed columns dropped by remove_column.
-        if current_adapter?(:PostgreSQLAdapter, :OracleAdapter)
+        if current_adapter?(:PostgreSQLAdapter)
           assert_equal [], connection.indexes("test_models").map(&:name)
         else
           assert_equal ["index_test_models_on_hat_style_and_hat_size"], connection.indexes("test_models").map(&:name)
@@ -195,7 +195,7 @@ module ActiveRecord
 
         old_columns = connection.columns(TestModel.table_name)
         assert old_columns.find { |c|
-          default = connection.lookup_cast_type_from_column(c).deserialize(c.default)
+          default = c.fetch_cast_type(connection).deserialize(c.default)
           c.name == "approved" && c.type == :boolean && default == true
         }
 
@@ -203,11 +203,11 @@ module ActiveRecord
         new_columns = connection.columns(TestModel.table_name)
 
         assert_not new_columns.find { |c|
-          default = connection.lookup_cast_type_from_column(c).deserialize(c.default)
+          default = c.fetch_cast_type(connection).deserialize(c.default)
           c.name == "approved" && c.type == :boolean && default == true
         }
         assert new_columns.find { |c|
-          default = connection.lookup_cast_type_from_column(c).deserialize(c.default)
+          default = c.fetch_cast_type(connection).deserialize(c.default)
           c.name == "approved" && c.type == :boolean && default == false
         }
         change_column :test_models, :approved, :boolean, default: true
@@ -311,6 +311,15 @@ module ActiveRecord
         assert_equal "CURRENT_TIMESTAMP", TestModel.columns_hash["edited_at"].default_function
       end
 
+      def test_change_column_default_supports_default_function_with_concatenation_operator
+        skip unless current_adapter?(:SQLite3Adapter)
+
+        add_column "test_models", "ruby_on_rails", :string
+        connection.change_column_default "test_models", "ruby_on_rails", -> { "('Ruby ' || 'on ' || 'Rails')" }
+        TestModel.reset_column_information
+        assert_equal "'Ruby ' || 'on ' || 'Rails'", TestModel.columns_hash["ruby_on_rails"].default_function
+      end
+
       def test_change_column_null_false
         add_column "test_models", "first_name", :string
         connection.change_column_null "test_models", "first_name", false
@@ -334,7 +343,21 @@ module ActiveRecord
         e = assert_raise(ArgumentError) do
           connection.change_column_null "test_models", "first_name", from: true, to: false
         end
-        assert_equal "change_column_null expects a boolean value (true for NULL, false for NOT NULL). Got: {:from=>true, :to=>false}", e.message
+        assert_equal "change_column_null expects a boolean value (true for NULL, false for NOT NULL). Got: #{{ from: true, to: false }}", e.message
+      end
+
+      def test_change_column_null_does_not_change_default_functions
+        skip unless current_adapter?(:Mysql2Adapter, :TrilogyAdapter) && supports_default_expression?
+
+        function = connection.mariadb? ? "current_timestamp(6)" : "(now())"
+
+        connection.change_column_default "test_models", "created_at", -> { function }
+        TestModel.reset_column_information
+        assert_equal function, TestModel.columns_hash["created_at"].default_function
+
+        connection.change_column_null "test_models", "created_at", true
+        TestModel.reset_column_information
+        assert_equal function, TestModel.columns_hash["created_at"].default_function
       end
 
       def test_remove_column_no_second_parameter_raises_exception
@@ -385,8 +408,8 @@ module ActiveRecord
         # SQLite3's ALTER TABLE statement has several limitations. To manage
         # this, the adapter creates a temporary table, copies the data, drops
         # the old table, creates the new table, then copies the data back.
-        expected_query_count = current_adapter?(:SQLite3Adapter) ? 12 : 1
-        assert_queries(expected_query_count) do
+        expected_query_count = current_adapter?(:SQLite3Adapter) ? 14 : 1
+        assert_queries_count(expected_query_count) do
           connection.remove_columns("my_table", "col_one", "col_two")
         end
 
@@ -402,8 +425,8 @@ module ActiveRecord
         # SQLite3's ALTER TABLE statement has several limitations. To manage
         # this, the adapter creates a temporary table, copies the data, drops
         # the old table, creates the new table, then copies the data back.
-        expected_query_count = current_adapter?(:SQLite3Adapter) ? 12 : 1
-        assert_queries(expected_query_count) do
+        expected_query_count = current_adapter?(:SQLite3Adapter) ? 14 : 1
+        assert_queries_count(expected_query_count) do
           connection.add_timestamps("my_table")
         end
 
