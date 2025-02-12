@@ -17,7 +17,7 @@ module ActiveJob
     # To use Sidekiq set the queue_adapter config to +:sidekiq+.
     #
     #   Rails.application.config.active_job.queue_adapter = :sidekiq
-    class SidekiqAdapter
+    class SidekiqAdapter < AbstractAdapter
       def enqueue(job) # :nodoc:
         job.provider_job_id = JobWrapper.set(
           wrapped: job.class,
@@ -54,7 +54,7 @@ module ActiveJob
                 "wrapped" => job_class,
                 "queue" => queue,
                 "args" => scheduled_jobs.map { |job| [job.serialize] },
-                "at" => scheduled_jobs.map { |job| job.scheduled_at }
+                "at" => scheduled_jobs.map { |job| job.scheduled_at&.to_f }
               )
               enqueued_count += jids.compact.size
             end

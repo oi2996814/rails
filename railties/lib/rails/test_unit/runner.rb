@@ -9,6 +9,19 @@ require "rails/test_unit/test_parser"
 
 module Rails
   module TestUnit
+    class InvalidTestError < ArgumentError
+      def initialize(path, suggestion)
+        super(<<~MESSAGE.rstrip)
+          Could not load test file: #{path}.
+          #{suggestion}
+        MESSAGE
+      end
+
+      def backtrace(*args)
+        []
+      end
+    end
+
     class Runner
       TEST_FOLDERS = [:models, :helpers, :channels, :controllers, :mailers, :integration, :jobs, :mailboxes]
       PATH_ARGUMENT_PATTERN = %r"^(?!/.+/$)[.\w]*[/\\]"
@@ -48,11 +61,26 @@ module Rails
         def load_tests(argv)
           patterns = extract_filters(argv)
           tests = list_tests(patterns)
-          tests.to_a.each { |path| require File.expand_path(path) }
+          tests.to_a.each do |path|
+            abs_path = File.expand_path(path)
+            require abs_path
+          rescue LoadError => exception
+            if exception.path == abs_path
+              all_tests = list_tests([default_test_glob])
+              corrections = DidYouMean::SpellChecker.new(dictionary: all_tests).correct(path)
+
+              if corrections.empty?
+                raise exception
+              end
+              raise(InvalidTestError.new(path, DidYouMean::Formatter.message_for(corrections)), cause: nil)
+            else
+              raise
+            end
+          end
         end
 
         def compose_filter(runnable, filter)
-          filter = escape_declarative_test_filter(filter)
+          filter = normalize_declarative_test_filter(filter)
 
           if filters.any? { |_, lines| lines.any? }
             CompositeFilter.new(runnable, filter, filters)
@@ -87,7 +115,7 @@ module Rails
           end
 
           def default_test_exclude_glob
-            ENV["DEFAULT_TEST_EXCLUDE"] || "test/{system,dummy}/**/*_test.rb"
+            ENV["DEFAULT_TEST_EXCLUDE"] || "test/{system,dummy,fixtures}/**/*_test.rb"
           end
 
           def regexp_filter?(arg)
@@ -101,15 +129,16 @@ module Rails
           def list_tests(patterns)
             tests = Rake::FileList[patterns.any? ? patterns : default_test_glob]
             tests.exclude(default_test_exclude_glob) if patterns.empty?
+            tests.exclude(%r{test/isolation/assets/node_modules})
             tests
           end
 
-          def escape_declarative_test_filter(filter)
-            # NOTE: This method may be applied multiple times, so any
-            # transformations MUST BE idempotent.
+          def normalize_declarative_test_filter(filter)
             if filter.is_a?(String)
               if regexp_filter?(filter)
-                filter = filter.gsub(/\s+/, '[\s_]+')
+                # Minitest::Spec::DSL#it does not replace whitespace in method
+                # names, so match unmodified method names as well.
+                filter = filter.gsub(/\s+/, "_").delete_suffix("/") + "|" + filter.delete_prefix("/")
               elsif !filter.start_with?("test_")
                 filter = "test_#{filter.gsub(/\s+/, "_")}"
               end

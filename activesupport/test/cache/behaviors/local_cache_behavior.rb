@@ -3,13 +3,13 @@
 module LocalCacheBehavior
   def test_instrumentation_with_local_cache
     key = SecureRandom.uuid
-    events = with_instrumentation "write" do
+    events = capture_notifications("cache_write.active_support") do
       @cache.write(key, SecureRandom.uuid)
     end
     assert_equal @cache.class.name, events[0].payload[:store]
 
     @cache.with_local_cache do
-      events = with_instrumentation "read" do
+      events = capture_notifications("cache_read.active_support") do
         @cache.read(key)
         @cache.read(key)
       end
@@ -55,7 +55,8 @@ module LocalCacheBehavior
     begin
       @cache.cleanup
     rescue NotImplementedError
-      skip
+      pass
+      return # Not implementing cleanup is valid
     end
 
     key = SecureRandom.uuid
@@ -157,7 +158,7 @@ module LocalCacheBehavior
     begin
       @cache.delete_matched("*")
     rescue NotImplementedError
-      skip
+      return # Not implementing delete_matched is valid
     end
 
     prefix = SecureRandom.alphanumeric
@@ -190,6 +191,7 @@ module LocalCacheBehavior
     @cache.with_local_cache do
       @cache.write(key, 1, raw: true)
       @peek.write(key, 2, raw: true)
+
       @cache.increment(key)
 
       expected = @peek.read(key, raw: true)
@@ -205,6 +207,7 @@ module LocalCacheBehavior
       @peek.write(key, 3, raw: true)
 
       @cache.decrement(key)
+
       expected = @peek.read(key, raw: true)
       assert_equal 2, Integer(expected)
       assert_equal expected, @cache.read(key, raw: true)
@@ -230,12 +233,53 @@ module LocalCacheBehavior
     other_value = SecureRandom.alphanumeric
     @cache.with_local_cache do
       @cache.write(key, value, raw: true)
-      @cache.write(other_key, other_value, raw: true)
+      @peek.write(other_key, other_value, raw: true)
       values = @cache.read_multi(key, other_key, raw: true)
       assert_equal value, @cache.read(key, raw: true)
       assert_equal other_value, @cache.read(other_key, raw: true)
       assert_equal value, values[key]
       assert_equal other_value, values[other_key]
+    end
+  end
+
+  def test_local_cache_of_read_multi_with_expiry
+    key = SecureRandom.uuid
+    value = SecureRandom.alphanumeric
+    @cache.with_local_cache do
+      time = Time.now
+      @cache.write(key, value, expires_in: 60)
+      assert_equal value, @cache.read_multi(key)[key]
+      Time.stub(:now, time + 61) do
+        assert_nil @cache.read_multi(key)[key]
+      end
+    end
+  end
+
+  def test_local_cache_of_read_multi_with_versions
+    model = Struct.new(:to_param, :cache_version)
+
+    @cache.with_local_cache do
+      thing = model.new(1, 1)
+      key = ["foo", thing]
+
+      @cache.write(key, "contents")
+
+      assert_equal "contents", @cache.read(key)
+      assert_equal "contents", @cache.read_multi(key)[key]
+
+      thing.cache_version = "002"
+      assert_nil @cache.read(key)
+      assert_nil @cache.read_multi(key)[key]
+    end
+  end
+
+  def test_local_cache_of_read_multi_prioritizes_local_entries
+    key = "key#{rand}"
+    @cache.with_local_cache do
+      @cache.write(key, "foo")
+      @cache.send(:bypass_local_cache) { @cache.write(key, "bar") }
+
+      assert_equal({ key => "foo" }, @cache.read_multi(key))
     end
   end
 

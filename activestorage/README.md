@@ -73,7 +73,7 @@ end
 ```erb
 <%= form_with model: @message, local: true do |form| %>
   <%= form.text_field :title, placeholder: "Title" %><br>
-  <%= form.text_area :content %><br><br>
+  <%= form.textarea :content %><br><br>
 
   <%= form.file_field :images, multiple: true %><br>
   <%= form.submit %>
@@ -88,7 +88,7 @@ class MessagesController < ApplicationController
   end
 
   def create
-    message = Message.create! params.require(:message).permit(:title, :content, images: [])
+    message = Message.create! params.expect(message: [ :title, :content, images: [] ])
     redirect_to message
   end
 
@@ -145,7 +145,7 @@ Active Storage, with its included JavaScript library, supports uploading directl
 1. Include the Active Storage JavaScript in your application's JavaScript bundle or reference it directly.
 
     Requiring directly without bundling through the asset pipeline in the application HTML with autostart:
-    ```html
+    ```erb
     <%= javascript_include_tag "activestorage" %>
     ```
     Requiring via importmap-rails without bundling through the asset pipeline in the application HTML without autostart as ESM:
@@ -170,7 +170,7 @@ Active Storage, with its included JavaScript library, supports uploading directl
     ```
 2. Annotate file inputs with the direct upload URL.
 
-    ```ruby
+    ```erb
     <%= form.file_field :attachments, multiple: true, direct_upload: true %>
     ```
 3. That's it! Uploads begin upon form submission.

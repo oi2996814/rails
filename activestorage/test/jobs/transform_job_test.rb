@@ -16,6 +16,20 @@ class ActiveStorage::TransformJobTest < ActiveJob::TestCase
     end
   end
 
+  test "creates variant for previewable file" do
+    @blob = create_file_blob(filename: "report.pdf", content_type: "application/pdf")
+    transformations = { resize_to_limit: [100, 100] }
+
+    assert_changes -> { @blob.preview(transformations).send(:processed?) }, from: false, to: true do
+      perform_enqueued_jobs do
+        ActiveStorage::TransformJob.perform_later @blob, transformations
+      end
+      @blob.reload
+    end
+
+    assert @blob.preview(transformations).image.variant(transformations).send(:processed?)
+  end
+
   test "creates variant when untracked" do
     @was_tracking, ActiveStorage.track_variants = ActiveStorage.track_variants, false
     transformations = { resize_to_limit: [100, 100] }
@@ -28,6 +42,17 @@ class ActiveStorage::TransformJobTest < ActiveJob::TestCase
       end
     ensure
       ActiveStorage.track_variants = @was_tracking
+    end
+  end
+
+  test "ignores unrepresentable blob" do
+    unrepresentable_blob = create_blob(content_type: "text/plain")
+    transformations = { resize_to_limit: [100, 100] }
+
+    perform_enqueued_jobs do
+      assert_nothing_raised do
+        ActiveStorage::TransformJob.perform_later unrepresentable_blob, transformations
+      end
     end
   end
 end
