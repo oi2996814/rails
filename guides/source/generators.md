@@ -1,4 +1,4 @@
-**DO NOT READ THIS FILE ON GITHUB, GUIDES ARE PUBLISHED ON https://guides.rubyonrails.org.**
+**DO NOT READ THIS FILE ON GITHUB, GUIDES ARE PUBLISHED ON <https://guides.rubyonrails.org>.**
 
 Creating and Customizing Rails Generators & Templates
 =====================================================
@@ -31,7 +31,7 @@ $ cd myapp
 $ bin/rails generate
 ```
 
-NOTE: To create a rails application we use the `rails` global command which uses
+NOTE: To create a Rails application we use the `rails` global command which uses
 the version of Rails installed via `gem install rails`. When inside the
 directory of your application, we use the `bin/rails` command which uses the
 version of Rails bundled with the application.
@@ -476,8 +476,8 @@ end
 ```
 
 First, the template asks the user whether they would like to install Devise.
-If the user replies "yes" (or "y"), the template adds Devise to the `Gemfile`
-asks the user for the name of the Devise user model (defaulting to `User`).
+If the user replies "yes" (or "y"), the template adds Devise to the `Gemfile`,
+and asks the user for the name of the Devise user model (defaulting to `User`).
 Later, after `bundle install` has been run, the template will run the Devise
 generators and `rails db:migrate` if a Devise model was specified. Finally, the
 template will `git add` and `git commit` the entire app directory.
@@ -528,6 +528,24 @@ In addition to those, Rails also provides many helper methods via
 * [`rake`][]
 * [`route`][]
 
+Testing Generators
+------------------
+
+Rails provides testing helper methods via
+[`Rails::Generators::Testing::Behaviour`][], such as:
+
+* [`run_generator`][]
+
+If running tests against generators you will need to set
+`RAILS_LOG_TO_STDOUT=true` in order for debugging tools to work.
+
+```sh
+RAILS_LOG_TO_STDOUT=true ./bin/test test/generators/actions_test.rb
+```
+
+In addition to those, Rails also provides additional assertions via
+[`Rails::Generators::Testing::Assertions`][].
+
 [`Rails::Generators::Actions`]: https://api.rubyonrails.org/classes/Rails/Generators/Actions.html
 [`environment`]: https://api.rubyonrails.org/classes/Rails/Generators/Actions.html#method-i-environment
 [`gem`]: https://api.rubyonrails.org/classes/Rails/Generators/Actions.html#method-i-gem
@@ -541,3 +559,6 @@ In addition to those, Rails also provides many helper methods via
 [`rails_command`]: https://api.rubyonrails.org/classes/Rails/Generators/Actions.html#method-i-rails_command
 [`rake`]: https://api.rubyonrails.org/classes/Rails/Generators/Actions.html#method-i-rake
 [`route`]: https://api.rubyonrails.org/classes/Rails/Generators/Actions.html#method-i-route
+[`Rails::Generators::Testing::Behaviour`]: https://api.rubyonrails.org/classes/Rails/Generators/Testing/Behavior.html
+[`run_generator`]: https://api.rubyonrails.org/classes/Rails/Generators/Testing/Behavior.html#method-i-run_generator
+[`Rails::Generators::Testing::Assertions`]: https://api.rubyonrails.org/classes/Rails/Generators/Testing/Assertions.html

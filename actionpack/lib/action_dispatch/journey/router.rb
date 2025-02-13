@@ -1,14 +1,12 @@
 # frozen_string_literal: true
 
+# :markup: markdown
+
+require "cgi"
 require "action_dispatch/journey/router/utils"
 require "action_dispatch/journey/routes"
 require "action_dispatch/journey/formatter"
-
-before = $-w
-$-w = false
 require "action_dispatch/journey/parser"
-$-w = before
-
 require "action_dispatch/journey/route"
 require "action_dispatch/journey/path/pattern"
 
@@ -22,14 +20,14 @@ module ActionDispatch
       end
 
       def eager_load!
-        # Eagerly trigger the simulator's initialization so
-        # it doesn't happen during a request cycle.
+        # Eagerly trigger the simulator's initialization so it doesn't happen during a
+        # request cycle.
         simulator
         nil
       end
 
       def serve(req)
-        find_routes(req).each do |match, parameters, route|
+        find_routes(req) do |match, parameters, route|
           set_params  = req.path_parameters
           path_info   = req.path_info
           script_name = req.script_name
@@ -46,7 +44,7 @@ module ActionDispatch
           }
 
           req.path_parameters = tmp_params
-          req.route_uri_pattern = route.path.spec.to_s
+          req.route = route
 
           _, headers, _ = response = route.app.serve(req)
 
@@ -64,7 +62,7 @@ module ActionDispatch
       end
 
       def recognize(rails_req)
-        find_routes(rails_req).each do |match, parameters, route|
+        find_routes(rails_req) do |match, parameters, route|
           unless route.path.anchored
             rails_req.script_name = match.to_s
             rails_req.path_info   = match.post_match
@@ -119,17 +117,28 @@ module ActionDispatch
             routes.select! { |r| r.matches?(req) }
           end
 
-          routes.sort_by!(&:precedence)
+          if routes.size > 1
+            routes.sort! do |a, b|
+              a.precedence <=> b.precedence
+            end
+          end
 
-          routes.map! { |r|
+          routes.each do |r|
             match_data = r.path.match(path_info)
             path_parameters = {}
-            match_data.names.each_with_index { |name, i|
-              val = match_data[i + 1]
-              path_parameters[name.to_sym] = Utils.unescape_uri(val) if val
-            }
-            [match_data, path_parameters, r]
-          }
+            index = 1
+            match_data.names.each do |name|
+              if val = match_data[index]
+                path_parameters[name.to_sym] = if val.include?("%")
+                  CGI.unescapeURIComponent(val)
+                else
+                  val
+                end
+              end
+              index += 1
+            end
+            yield [match_data, path_parameters, r]
+          end
         end
 
         def match_head_routes(routes, req)

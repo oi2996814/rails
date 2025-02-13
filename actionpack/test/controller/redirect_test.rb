@@ -203,6 +203,12 @@ class RedirectController < ActionController::Base
     redirect_to "\000/lol\r\nwat"
   end
 
+  def redirect_to_external_with_rescue
+    redirect_to "http://www.rubyonrails.org/", allow_other_host: false
+  rescue ActionController::Redirecting::UnsafeRedirectError
+    render plain: "caught error"
+  end
+
   def rescue_errors(e) raise e end
 
   private
@@ -599,6 +605,19 @@ class RedirectTest < ActionController::TestCase
       assert_response :redirect
       assert_redirected_to "http://test.host/fallback"
     end
+  end
+
+  def test_redirect_to_instrumentation
+    notification = assert_notification("redirect_to.action_controller", status: 302, location: "http://test.host/redirect/hello_world") do
+      get :simple_redirect
+    end
+
+    assert_kind_of ActionDispatch::Request, notification.payload[:request]
+  end
+
+  def test_redirect_to_external_with_rescue
+    get :redirect_to_external_with_rescue
+    assert_response :ok
   end
 
   private

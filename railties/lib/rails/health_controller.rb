@@ -24,7 +24,7 @@ module Rails
   # The health check will now be accessible via the +/healthz+ path.
   #
   # NOTE: This endpoint does not reflect the status of all of your application's
-  # dependencies, such as the database or redis cluster. Replace
+  # dependencies, such as the database or Redis cluster. Replace
   # <tt>"rails/health#show"</tt> with your own controller action if you have
   # application specific needs.
   #
@@ -49,7 +49,7 @@ module Rails
       end
 
       def html_status(color:)
-        %(<html><body style="background-color: #{color}"></body></html>).html_safe
+        %(<!DOCTYPE html><html><body style="background-color: #{color}"></body></html>).html_safe
       end
   end
 end

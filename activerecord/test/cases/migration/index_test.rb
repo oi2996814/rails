@@ -9,7 +9,7 @@ module ActiveRecord
 
       def setup
         super
-        @connection = ActiveRecord::Base.connection
+        @connection = ActiveRecord::Base.lease_connection
         @table_name = :testings
 
         connection.create_table table_name do |t|
@@ -178,6 +178,7 @@ module ActiveRecord
         connection.add_index :testings, [:foo, :bar], name: "my_index"
         assert connection.index_exists?(:testings, [:foo, :bar], name: "my_index")
         assert connection.index_exists?(:testings, [], name: "my_index")
+        assert connection.index_exists?(:testings, name: "my_index")
         assert_not connection.index_exists?(:testings, [:foo], name: "my_index")
       end
 
@@ -220,7 +221,9 @@ module ActiveRecord
 
       def test_add_index
         connection.add_index("testings", "last_name")
+        assert connection.index_exists?("testings", "last_name")
         connection.remove_index("testings", "last_name")
+        assert_not connection.index_exists?("testings", "last_name")
 
         connection.add_index("testings", ["last_name", "first_name"])
         connection.remove_index("testings", column: ["last_name", "first_name"])
@@ -277,6 +280,8 @@ module ActiveRecord
         end
 
         def test_add_index_with_included_column
+          skip("current adapter doesn't support include indexes") unless supports_index_include?
+
           connection.add_index("testings", "last_name", include: :foo)
           assert connection.index_exists?("testings", "last_name", include: :foo)
 
@@ -285,6 +290,8 @@ module ActiveRecord
         end
 
         def test_add_index_with_multiple_included_columns
+          skip("current adapter doesn't support include indexes") unless supports_index_include?
+
           connection.add_index("testings", "last_name", include: [:foo, :bar])
           assert connection.index_exists?("testings", "last_name", include: [:foo, :bar])
 
@@ -293,6 +300,8 @@ module ActiveRecord
         end
 
         def test_add_index_with_included_column_and_where_clause
+          skip("current adapter doesn't support include indexes") unless supports_index_include?
+
           connection.add_index("testings", "last_name", include: :foo, where: "first_name = 'john doe'")
           assert connection.index_exists?("testings", "last_name", include: :foo, where: "first_name = 'john doe'")
 

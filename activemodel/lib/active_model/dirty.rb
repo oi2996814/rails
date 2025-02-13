@@ -187,7 +187,7 @@ module ActiveModel
       #
       #   person = Person.new(name: 'Steph')
       #   person.name = 'Stephanie'
-      #   person.name_change # => ['Steph', 'Stephanie']
+      #   person.name_was # => 'Steph'
 
       ##
       # :method: *_previous_change
@@ -247,16 +247,23 @@ module ActiveModel
 
     def initialize_dup(other) # :nodoc:
       super
-      if self.class.respond_to?(:_default_attributes)
-        @attributes = self.class._default_attributes.map do |attr|
-          attr.with_value_from_user(@attributes.fetch_value(attr.name))
-        end
-      end
       @mutations_from_database = nil
     end
 
+    def init_attributes(other) # :nodoc:
+      attrs = super
+      if self.class.respond_to?(:_default_attributes)
+        self.class._default_attributes.map do |attr|
+          attr.with_value_from_user(attrs.fetch_value(attr.name))
+        end
+      else
+        attrs
+      end
+    end
+
     def as_json(options = {}) # :nodoc:
-      options[:except] = [*options[:except], "mutations_from_database", "mutations_before_last_save"]
+      except = [*options[:except], "mutations_from_database", "mutations_before_last_save"]
+      options = options.merge except: except
       super(options)
     end
 
@@ -289,7 +296,7 @@ module ActiveModel
       mutations_from_database.changed_attribute_names
     end
 
-    # Dispatch target for {*_changed}[rdoc-label:method-i-2A_changed-3F] attribute methods.
+    # Dispatch target for {*_changed?}[rdoc-label:method-i-2A_changed-3F] attribute methods.
     def attribute_changed?(attr_name, **options)
       mutations_from_database.changed?(attr_name.to_s, **options)
     end
@@ -299,7 +306,7 @@ module ActiveModel
       mutations_from_database.original_value(attr_name.to_s)
     end
 
-    # Dispatch target for {*_previously_changed}[rdoc-label:method-i-2A_previously_changed-3F] attribute methods.
+    # Dispatch target for {*_previously_changed?}[rdoc-label:method-i-2A_previously_changed-3F] attribute methods.
     def attribute_previously_changed?(attr_name, **options)
       mutations_before_last_save.changed?(attr_name.to_s, **options)
     end
